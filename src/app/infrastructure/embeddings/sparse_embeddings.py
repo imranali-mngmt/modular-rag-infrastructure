@@ -1,23 +1,46 @@
 from typing import List, Dict, Any
-from fastembed import SparseTextEmbedding
+from collections import Counter
+import re
 from app.domain.interfaces.sparse_embeddings_interface import BaseSparseEmbeddings
 
 
-class FastEmbedSparseEmbeddings(BaseSparseEmbeddings):
-    """Uses FastEmbed's Splade model for local, high-quality sparse embeddings."""
+class SimpleSparseEmbeddings(BaseSparseEmbeddings):
+    """
+    A lightweight, NO-DOWNLOAD sparse embedding based on term frequency.
+    Replaces FastEmbed to avoid downloading the ~100MB Splade model.
+    """
 
-    def __init__(self):
-        # Downloads the model on first run (~100MB), then runs locally
-        self.model = SparseTextEmbedding(model_name="prithivida/Splade_PP_en_v1")
+    def _tokenize(self, text: str) -> List[str]:
+        return re.findall(r"\b\w+\b", text.lower())
 
     def embed_documents(self, texts: List[str]) -> List[Dict[str, Any]]:
-        sparse_embeddings = list(self.model.embed(texts))
-        return [
-            {"indices": emb.indices.tolist(), "values": emb.values.tolist()}
-            for emb in sparse_embeddings
-        ]
+        results = []
+        for text in texts:
+            tokens = self._tokenize(text)
+            counts = Counter(tokens)
+            unique_tokens = list(counts.keys())
+
+            # Create hash-based indices and sort them (Qdrant requires sorted indices)
+            token_indices = [
+                (abs(hash(t)) % 50000, float(counts[t])) for t in unique_tokens
+            ]
+            token_indices.sort(key=lambda x: x[0])
+
+            indices = [item[0] for item in token_indices]
+            values = [item[1] for item in token_indices]
+            results.append({"indices": indices, "values": values})
+        return results
 
     def embed_query(self, text: str) -> Dict[str, Any]:
-        # Query embedding requires query=True for Splade
-        emb = list(self.model.query_embed(text))[0]
-        return {"indices": emb.indices.tolist(), "values": emb.values.tolist()}
+        tokens = self._tokenize(text)
+        counts = Counter(tokens)
+        unique_tokens = list(counts.keys())
+
+        token_indices = [
+            (abs(hash(t)) % 50000, float(counts[t])) for t in unique_tokens
+        ]
+        token_indices.sort(key=lambda x: x[0])
+
+        indices = [item[0] for item in token_indices]
+        values = [item[1] for item in token_indices]
+        return {"indices": indices, "values": values}

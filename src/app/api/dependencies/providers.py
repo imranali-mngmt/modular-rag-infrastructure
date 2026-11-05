@@ -15,6 +15,7 @@ from app.infrastructure.retrievers.vectorstore_retriever import HybridRerankingR
 from app.infrastructure.rerankers.cohere_reranker import CohereReranker
 from app.application.services.indexing_service import IndexingService
 from app.application.services.retrieval_service import RetrievalService
+from app.infrastructure.embeddings.sparse_embeddings import SimpleSparseEmbeddings
 
 
 @lru_cache(maxsize=1)
@@ -24,7 +25,7 @@ def get_embeddings() -> BaseEmbeddings:
 
 @lru_cache(maxsize=1)
 def get_sparse_embeddings() -> BaseSparseEmbeddings:
-    return FastEmbedSparseEmbeddings()
+    return SimpleSparseEmbeddings()
 
 
 @lru_cache(maxsize=1)

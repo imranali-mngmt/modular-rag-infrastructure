@@ -132,6 +132,9 @@ def handle_clear(vector_store):
         print("Cancelled.")
 
 
+# ... (keep imports and helper functions the same)
+
+
 def main():
     print_banner()
 
@@ -152,10 +155,10 @@ def main():
             if not user_input:
                 continue
 
+            # CHANGE THIS BLOCK:
             if not user_input.startswith("/"):
-                print(
-                    "❌ Commands must start with '/'. Type /help for available commands."
-                )
+                # Treat direct input as a query
+                handle_query(user_input, retrieval_service)
                 continue
 
             # Parse command and arguments
@@ -170,8 +173,6 @@ def main():
                 print_help()
             elif command == "/ingest":
                 handle_ingest(args, indexing_service)
-            elif command == "/query":
-                handle_query(args, retrieval_service)
             elif command == "/list":
                 handle_list(vector_store)
             elif command == "/clear":
@@ -187,6 +188,9 @@ def main():
         except Exception as e:
             print(f"❌ Error: {e}")
 
+
+if __name__ == "__main__":
+    main()
 
 if __name__ == "__main__":
     main()
