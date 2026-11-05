@@ -21,6 +21,8 @@ Or call programmatically:
     )
 """
 
+from openai import OpenAI, AsyncOpenAI
+from deepeval.models import DeepEvalBaseLLM
 import argparse
 import json
 import sys
@@ -52,7 +54,13 @@ class Mercury3Judge(DeepEvalBaseLLM):
             raise ValueError("INCEPTION_API_KEY not found in environment.")
 
         self.client = OpenAI(
-            api_key=api_key, base_url="https://api.inceptionlabs.ai/v1/"
+            api_key=api_key,
+            base_url="https://api.inceptionlabs.ai/v1/",
+        )
+
+        self.async_client = AsyncOpenAI(
+            api_key=api_key,
+            base_url="https://api.inceptionlabs.ai/v1/",
         )
 
     def load_model(self):
@@ -70,7 +78,7 @@ class Mercury3Judge(DeepEvalBaseLLM):
         return response.choices[0].message.content or ""
 
     async def a_generate(self, prompt: str) -> str:
-        response = await self.client.chat.completions.create(
+        response = await self.async_client.chat.completions.create(
             model="mercury-3",
             messages=[{"role": "user", "content": prompt}],
         )
@@ -78,14 +86,26 @@ class Mercury3Judge(DeepEvalBaseLLM):
         return response.choices[0].message.content or ""
 
 
-# Make the project root importable so we can import from 'src'
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
+def resolve_judge_model(model_name: str):
+    """Resolve custom Mercury judge or a LiteLLM model string."""
 
-SCRIPT_DIR = Path(__file__).resolve().parent
-DEFAULT_DATASET_PATH = SCRIPT_DIR / "golden_dataset.json"
-DEFAULT_RESULTS_DIR = SCRIPT_DIR / "results"
+    if model_name.lower() == "mercury-3":
+        return Mercury3Judge()
+
+    # Other providers are handled by DeepEval / LiteLLM.
+    return model_name
+
+
+# Make the project root importable so we can import from 'src'
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+EVALS_DIR = PROJECT_ROOT / "evals"
+
+DATASET_DIR = EVALS_DIR / "datasets"
+RESULTS_DIR = EVALS_DIR / "results"
+
+DEFAULT_DATASET_PATH = DATASET_DIR / "golden_dataset.json"
+DEFAULT_RESULTS_DIR = RESULTS_DIR
 
 # ============================================================
 # JUDGE PROVIDERS
@@ -110,7 +130,7 @@ DEFAULT_RESULTS_DIR = SCRIPT_DIR / "results"
 class GeneratorEvalConfig:
     """All knobs for a generator evaluation run."""
 
-    judge_model: DeepEvalBaseLLM = field(default_factory=Mercury3Judge)
+    judge_model: Any = field(default_factory=Mercury3Judge)
 
     dataset_path: Path = DEFAULT_DATASET_PATH
     results_dir: Path = DEFAULT_RESULTS_DIR
@@ -542,7 +562,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--judge-model",
         type=str,
-        default=base.judge_model,
+        default="mercury-3",
         help=(
             "Judge model in LiteLLM format. Examples: 'gpt-4o-mini', "
             "'openrouter/openai/gpt-4o-mini', 'gemini/gemini-1.5-flash', "
@@ -567,7 +587,7 @@ if __name__ == "__main__":
             results_dir=args.results_dir,
             top_k=args.top_k,
             metric_threshold=args.threshold,
-            judge_model=args.judge_model,
+            judge_model=resolve_judge_model(args.judge_model),
             verbose=not args.quiet,
         )
     )
