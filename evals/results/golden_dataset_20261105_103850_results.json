@@ -1,0 +1,117 @@
+{
+    "dataset": "golden_dataset",
+    "evaluation_timestamp": "2026-11-05T10:38:50.661624+00:00",
+    "evaluation_provider": "Groq",
+    "evaluation_model": "llama-3.3-70b-versatile",
+    "retrieval_k": 4,
+    "total_samples": 8,
+    "evaluated_samples": 0,
+    "skipped_samples": 8,
+    "summary": {},
+    "samples": [
+        {
+            "input": "Where is Imran Shahadat based and how can he be contacted?",
+            "expected_output": "Imran Shahadat is based in Lahore, Pakistan. He can be contacted at imranali.13imran@gmail.com or 0305 6151224. His profile also includes LinkedIn and GitHub accounts.",
+            "expected_context": [
+                "Imran Shahadat - Lahore, Pakistan - Email: imranali.13imran@gmail.com - Phone: 0305 6151224 - LinkedIn - GitHub"
+            ],
+            "retrieved_context": [],
+            "retrieved_count": 0,
+            "metrics": {
+                "error": "No documents retrieved - metrics skipped."
+            }
+        },
+        {
+            "input": "How much experience does Imran have and what are his main technical skills?",
+            "expected_output": "Imran is a Senior Backend & Full-Stack Developer with over 10 years of experience. His main technologies include Node.js, PHP, Java, Express.js, NestJS, Laravel, MySQL, PostgreSQL, MongoDB, and Redis.",
+            "expected_context": [
+                "Professional Summary: Results-driven Senior Backend & Full-Stack Developer with over 10 years of experience specializing in Node.js, PHP, and Java.",
+                "Technical Skills - Backend: Node.js, PHP, Java, Express.js, NestJS, Laravel. Databases: MySQL, PostgreSQL, MongoDB, Redis."
+            ],
+            "retrieved_context": [],
+            "retrieved_count": 0,
+            "metrics": {
+                "error": "No documents retrieved - metrics skipped."
+            }
+        },
+        {
+            "input": "What is Imran's current job and what are his key achievements at Mindbridge?",
+            "expected_output": "Imran works as a Senior Backend Developer / Team Leader at Mindbridge in Lahore since September 2023. He built systems serving 50,000+ daily active users, achieved 99.9% uptime through microservices, improved API response times by 40%, and reduced deployment times by 60%.",
+            "expected_context": [
+                "Mindbridge - Senior Backend Developer / Team Leader, Lahore, Pakistan, Sep 2023 - Present.",
+                "Architected and scaled backend systems serving 50,000+ daily active users globally.",
+                "Led the transition to microservices, achieving 99.9% system uptime.",
+                "Optimized database queries, reducing average API response times by 40%.",
+                "Used Docker and GitHub Actions CI/CD pipelines, cutting deployment times by 60%."
+            ],
+            "retrieved_context": [],
+            "retrieved_count": 0,
+            "metrics": {
+                "error": "No documents retrieved - metrics skipped."
+            }
+        },
+        {
+            "input": "What leadership, security, and testing responsibilities does Imran handle?",
+            "expected_output": "He manages a cross-functional team of 8 developers, leads code reviews, mentors junior engineers, implements JWT/OAuth authentication and encryption, maintains zero security breaches, and uses Jest and Mocha to maintain 85%+ code coverage.",
+            "expected_context": [
+                "Managed a cross-functional team of 8 developers, leading code reviews and mentoring junior engineers.",
+                "Established security protocols including JWT/OAuth authentication and advanced encryption, maintaining zero security breaches.",
+                "Maintained test suites using Jest and Mocha with 85%+ code coverage."
+            ],
+            "retrieved_context": [],
+            "retrieved_count": 0,
+            "metrics": {
+                "error": "No documents retrieved - metrics skipped."
+            }
+        },
+        {
+            "input": "Where has Imran worked previously and what did he accomplish?",
+            "expected_output": "Imran worked at Vaival Technologies as a Senior Software Engineer from January 2018 to August 2023, developing enterprise applications, handling third-party integrations, and migrating legacy systems to reduce server costs by 20%. Before that, he worked at Black Box Technology as a Backend Developer from June 2014 to December 2017.",
+            "expected_context": [
+                "Vaival Technologies - Senior Software Engineer, Jan 2018 - Aug 2023. Developed enterprise applications, handled third-party integrations, and migrated legacy applications, reducing server costs by 20%.",
+                "Black Box Technology - Backend Developer, Jun 2014 - Dec 2017."
+            ],
+            "retrieved_context": [],
+            "retrieved_count": 0,
+            "metrics": {
+                "error": "No documents retrieved - metrics skipped."
+            }
+        },
+        {
+            "input": "What cloud, DevOps, and infrastructure technologies does Imran know?",
+            "expected_output": "He has experience with AWS (EC2, S3, Lambda), Docker, GitHub Actions, Jenkins, CI/CD pipelines, Git, and Linux.",
+            "expected_context": [
+                "Technical Skills - DevOps & Cloud: AWS (EC2, S3, Lambda), Docker, CI/CD Pipelines (GitHub Actions, Jenkins), Git, Linux."
+            ],
+            "retrieved_context": [],
+            "retrieved_count": 0,
+            "metrics": {
+                "error": "No documents retrieved - metrics skipped."
+            }
+        },
+        {
+            "input": "What is Imran Shahadat's educational background?",
+            "expected_output": "He holds a Bachelor of Science in Computer Science from Virtual University of Pakistan and an Intermediate in Computer Science (ICS) from the Board of Intermediate and Secondary Education, Lahore.",
+            "expected_context": [
+                "Education: Bachelor of Science in Computer Science - Virtual University of Pakistan. Intermediate in Computer Science (ICS) - Board of Intermediate and Secondary Education, Lahore."
+            ],
+            "retrieved_context": [],
+            "retrieved_count": 0,
+            "metrics": {
+                "error": "No documents retrieved - metrics skipped."
+            }
+        },
+        {
+            "input": "What certifications does Imran Shahadat hold?",
+            "expected_output": "He holds two Web Development Certifications, one from Nevtech and one from PNY.",
+            "expected_context": [
+                "Certifications: Web Development Certification - Nevtech. Web Development Certification - PNY."
+            ],
+            "retrieved_context": [],
+            "retrieved_count": 0,
+            "metrics": {
+                "error": "No documents retrieved - metrics skipped."
+            }
+        }
+    ]
+}

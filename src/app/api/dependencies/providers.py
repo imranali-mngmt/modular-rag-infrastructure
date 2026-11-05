@@ -6,10 +6,9 @@ from app.domain.interfaces.sparse_embeddings_interface import BaseSparseEmbeddin
 from app.domain.interfaces.vectorstore_interface import BaseVectorStore
 from app.domain.interfaces.retriever_interface import BaseRetriever
 from app.domain.interfaces.reranker_interface import BaseReranker
-
+from app.application.services.generator_service import GeneratorService
 from app.infrastructure.llm.factory import build_llm
 from app.infrastructure.embeddings.factory import build_embeddings
-from app.infrastructure.embeddings.sparse_embeddings import FastEmbedSparseEmbeddings
 from app.infrastructure.vectorstores.qdrant_store import QdrantHybridVectorStore
 from app.infrastructure.retrievers.vectorstore_retriever import HybridRerankingRetriever
 from app.infrastructure.rerankers.cohere_reranker import CohereReranker
@@ -32,7 +31,7 @@ def get_sparse_embeddings() -> BaseSparseEmbeddings:
 def get_vector_store() -> BaseVectorStore:
     return QdrantHybridVectorStore(
         settings=settings,
-        dense_embeddings=get_embeddings(),
+        dense_embeddings=get_embeddings(),  # Properly worked Qdrant expects 'dense_embeddings'
         sparse_embeddings=get_sparse_embeddings(),
     )
 
@@ -56,9 +55,19 @@ def get_retriever() -> BaseRetriever:
 def get_indexing_service() -> IndexingService:
     return IndexingService(
         vector_store=get_vector_store(),
-        dense_embeddings=get_embeddings(),
+        embeddings=get_embeddings(),  # Properly worked IndexingService expects 'embeddings'
         settings=settings,
     )
+
+
+@lru_cache(maxsize=1)
+def get_llm() -> BaseLLM:
+    return build_llm()
+
+
+@lru_cache(maxsize=1)
+def get_generator_service() -> GeneratorService:
+    return GeneratorService(llm=get_llm())
 
 
 @lru_cache(maxsize=1)
@@ -75,5 +84,7 @@ def reset_all_caches() -> None:
         get_retriever,
         get_indexing_service,
         get_retrieval_service,
+        get_llm,
+        get_generator_service,
     ]:
         fn.cache_clear()

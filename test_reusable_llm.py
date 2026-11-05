@@ -38,7 +38,7 @@ def main() -> None:
         print("-" * 60)
         print(response)
         print("-" * 60)
-        print("\n✅ Test completed successfully!")
+        print("\nProperly worked Test completed successfully!")
 
     except ConfigurationError as e:
         print(f"\n❌ Configuration Error: {e}")

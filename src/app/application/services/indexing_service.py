@@ -71,7 +71,7 @@ class IndexingService:
         indexed = self.vector_store.add_documents(texts, embeddings, metadatas)
 
         total = self.vector_store.count()
-        print(f"✅ Indexed {indexed} chunks (total in store: {total})")
+        print(f"Properly worked Indexed {indexed} chunks (total in store: {total})")
 
         return IndexingResult(
             documents_loaded=len(documents),

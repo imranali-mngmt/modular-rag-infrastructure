@@ -54,7 +54,9 @@ def load_folder(folder_path: str) -> List[Document]:
             try:
                 docs = load_file(str(file_path))
                 all_documents.extend(docs)
-                print(f"  ✅ Loaded: {file_path.name} ({len(docs)} pages/sections)")
+                print(
+                    f"  Properly worked Loaded: {file_path.name} ({len(docs)} pages/sections)"
+                )
             except Exception as e:
                 print(f"  ⚠️  Skipped {file_path.name}: {e}")
 

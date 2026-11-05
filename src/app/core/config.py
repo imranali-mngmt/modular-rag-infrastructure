@@ -67,7 +67,7 @@ class Settings:
         default_factory=lambda: os.getenv("QDRANT_COLLECTION_NAME", "documents")
     )
     QDRANT_USE_IN_MEMORY: bool = field(
-        default_factory=lambda: os.getenv("QDRANT_USE_IN_MEMORY", "true").lower()
+        default_factory=lambda: os.getenv("QDRANT_USE_IN_MEMORY", "false").lower()
         == "true"
     )
 

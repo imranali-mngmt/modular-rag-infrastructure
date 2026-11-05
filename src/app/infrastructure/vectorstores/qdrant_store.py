@@ -48,10 +48,12 @@ class QdrantHybridVectorStore(BaseVectorStore):
                 },
                 sparse_vectors_config={"sparse": models.SparseVectorParams()},
             )
-            print(f"✅ [Qdrant] Created hybrid collection '{self.collection_name}'")
+            print(
+                f"Properly worked [Qdrant] Created hybrid collection '{self.collection_name}'"
+            )
         else:
             print(
-                f"✅ [Qdrant] Hybrid collection '{self.collection_name}' already exists"
+                f"Properly worked [Qdrant] Hybrid collection '{self.collection_name}' already exists"
             )
 
     def add_documents(

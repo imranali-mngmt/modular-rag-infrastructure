@@ -11,6 +11,7 @@ from app.api.dependencies.providers import (
     get_indexing_service,
     get_retrieval_service,
     get_vector_store,
+    get_generator_service,
 )
 from app.core.config import settings
 from app.core.exceptions import ConfigurationError, LLMProviderError
@@ -31,7 +32,6 @@ def print_banner():
 def print_help():
     print("\n📖 Available Commands:")
     print("  /ingest <path>     - Ingest a file or folder (PDF, TXT, MD)")
-    print("  /query <question>  - Ask a question about your documents")
     print("  /list              - Show statistics about indexed documents")
     print("  /clear             - Clear all indexed documents")
     print("  /help              - Show this help message")
@@ -67,43 +67,71 @@ def handle_ingest(args: str, indexing_service):
         print(f"❌ Error during ingestion: {e}")
 
 
-def handle_query(args: str, retrieval_service):
-    """Handle /query command."""
+import traceback
+from pathlib import Path
+
+# ... (keep your other imports)
+
+
+def handle_query(args: str, retrieval_service, generator_service):
+    """Handle direct questions or /query command."""
     if not args:
-        print("❌ Usage: /query <your question>")
+        print("❌ Please provide a question.")
         return
 
     query = args.strip()
     print(f"\n🔍 Searching for: '{query}'\n")
 
     try:
+        # 1. Retrieve relevant chunks
         response = retrieval_service.retrieve(query)
 
         if not response.results:
             print(
-                "⚠️  No relevant documents found. Try ingesting some documents first!"
+                "⚠️  No relevant documents found. Try ingesting some documents first!\n"
             )
             return
 
-        print(f"📄 Found {response.total_found} relevant chunk(s):\n")
+        print(
+            f"📄 Found {len(response.results)} relevant chunk(s). Generating answer...\n"
+        )
         print("-" * 70)
 
+        # 2. Generate answer using LLM
+        answer = generator_service.generate_answer(query, response.results)
+
+        print("💡 GENERATED ANSWER:")
+        print(answer)
+        print("-" * 70)
+
+        # 3. Print sources below the answer (Robust to dict or object)
+        print("\n📚 SOURCES:")
         for i, result in enumerate(response.results, 1):
-            source = result.metadata.get("source", "unknown")
-            page = result.metadata.get("page", "?")
-            chunk_idx = result.metadata.get("chunk_index", "?")
+            if isinstance(result, dict):
+                meta = result.get("metadata", {})
+                source = meta.get("source", "unknown")
+                page = meta.get("page", "?")
+            else:
+                meta = getattr(result, "metadata", {})
+                source = (
+                    meta.get("source", "unknown")
+                    if isinstance(meta, dict)
+                    else "unknown"
+                )
+                page = meta.get("page", "?") if isinstance(meta, dict) else "?"
 
-            print(f"[{i}] Score: {result.score:.4f}")
-            print(
-                f"    Source: {Path(source).name} | Page: {page} | Chunk: {chunk_idx}"
-            )
-            print(f"    Content: {result.content[:300]}...")
-            print()
+            # Safely handle Path extraction
+            try:
+                source_name = Path(source).name
+            except Exception:
+                source_name = str(source)
 
-        print("-" * 70)
+            print(f"  [{i}] {source_name} (Page: {page})")
+        print()
 
     except Exception as e:
-        print(f"❌ Error during retrieval: {e}")
+        print(f"\n❌ Error during retrieval/generation:")
+        traceback.print_exc()  # This will print the exact line causing the error
 
 
 def handle_list(vector_store):
@@ -125,7 +153,7 @@ def handle_clear(vector_store):
     if confirm == "y":
         try:
             vector_store.clear()
-            print("✅ All documents cleared.")
+            print("Properly worked All documents cleared.")
         except Exception as e:
             print(f"❌ Error clearing: {e}")
     else:
@@ -142,6 +170,7 @@ def main():
         indexing_service = get_indexing_service()
         retrieval_service = get_retrieval_service()
         vector_store = get_vector_store()
+        generator_service = get_generator_service()
     except (ConfigurationError, LLMProviderError) as e:
         print(f"\n❌ Initialization Error: {e}")
         sys.exit(1)
@@ -158,7 +187,7 @@ def main():
             # CHANGE THIS BLOCK:
             if not user_input.startswith("/"):
                 # Treat direct input as a query
-                handle_query(user_input, retrieval_service)
+                handle_query(user_input, retrieval_service, generator_service)
                 continue
 
             # Parse command and arguments

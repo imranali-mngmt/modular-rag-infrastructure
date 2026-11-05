@@ -45,12 +45,12 @@ def build_embeddings(s: Settings = settings) -> BaseEmbeddings:
                 f"API key '{required_key}' is missing for embedding provider '{provider}'. "
                 f"Please add it to your .env file."
             )
-        print(f"✅ [Embeddings Factory] API key '{required_key}' found")
+        print(f"Properly worked [Embeddings Factory] API key '{required_key}' found")
 
     try:
         embeddings_instance = embeddings_class(s)
         print(
-            f"✅ [Embeddings Factory] Successfully initialized {embeddings_class.__name__}"
+            f"Properly worked [Embeddings Factory] Successfully initialized {embeddings_class.__name__}"
         )
         return embeddings_instance
     except Exception as e:

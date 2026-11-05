@@ -20,13 +20,13 @@ def main() -> None:
         # 1. Get embeddings instance
         print("\n📦 Requesting embeddings instance...")
         embeddings = get_embeddings()
-        print(f"✅ Got embeddings instance: {type(embeddings).__name__}\n")
+        print(f"Properly worked Got embeddings instance: {type(embeddings).__name__}\n")
 
         # 2. Test single query embedding
         print("📝 Testing single query embedding...")
         query = "What is machine learning?"
         query_embedding = embeddings.embed_query(query)
-        print(f"✅ Query embedded successfully!")
+        print(f"Properly worked Query embedded successfully!")
         print(f"   Vector dimension: {len(query_embedding)}")
         print(f"   First 5 values: {query_embedding[:5]}\n")
 
@@ -38,7 +38,7 @@ def main() -> None:
             "Natural language processing helps computers understand human language.",
         ]
         text_embeddings = embeddings.embed_texts(texts)
-        print(f"✅ {len(texts)} texts embedded successfully!")
+        print(f"Properly worked {len(texts)} texts embedded successfully!")
         print(f"   Each vector dimension: {len(text_embeddings[0])}")
         print(f"   Total embeddings: {len(text_embeddings)}\n")
 
@@ -54,10 +54,12 @@ def main() -> None:
 
         print(f"   Similarity (ML vs Deep Learning): {sim_01:.4f}")
         print(f"   Similarity (ML vs NLP): {sim_02:.4f}")
-        print(f"   ✅ ML and Deep Learning are more similar (as expected!)\n")
+        print(
+            f"   Properly worked ML and Deep Learning are more similar (as expected!)\n"
+        )
 
         print("=" * 60)
-        print("✅ All embedding tests passed!")
+        print("Properly worked All embedding tests passed!")
         print("=" * 60)
 
     except ConfigurationError as e:
