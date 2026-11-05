@@ -1,0 +1,41 @@
+{
+    "name": "ai_concepts_golden",
+    "description": "Golden dataset for AI concepts evaluation",
+    "golden_samples": [
+        {
+            "input": "What is machine learning?",
+            "expected_output": "Machine learning is a subset of artificial intelligence that enables systems to learn and improve from experience without being explicitly programmed.",
+            "retrieval_context": [
+                "Machine learning is a subset of artificial intelligence that enables systems to learn and improve from experience without being explicitly programmed."
+            ]
+        },
+        {
+            "input": "What is deep learning?",
+            "expected_output": "Deep learning is a subset of machine learning that uses neural networks with many layers to analyze various factors of data.",
+            "retrieval_context": [
+                "Deep learning is a subset of machine learning that uses neural networks with many layers (deep neural networks) to analyze various factors of data."
+            ]
+        },
+        {
+            "input": "What is RAG?",
+            "expected_output": "Retrieval-Augmented Generation (RAG) combines information retrieval with text generation to produce more accurate and context-aware responses.",
+            "retrieval_context": [
+                "Retrieval-Augmented Generation (RAG) combines information retrieval with text generation to produce more accurate and context-aware responses."
+            ]
+        },
+        {
+            "input": "What are vector databases used for?",
+            "expected_output": "Vector databases store data as high-dimensional vectors, allowing for efficient similarity search and semantic understanding.",
+            "retrieval_context": [
+                "Vector databases store data as high-dimensional vectors, allowing for efficient similarity search and semantic understanding."
+            ]
+        },
+        {
+            "input": "How does NLP help computers?",
+            "expected_output": "Natural language processing (NLP) is a branch of AI that helps computers understand, interpret, and manipulate human language.",
+            "retrieval_context": [
+                "Natural language processing (NLP) is a branch of AI that helps computers understand, interpret, and manipulate human language."
+            ]
+        }
+    ]
+}
