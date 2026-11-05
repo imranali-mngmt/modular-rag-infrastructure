@@ -66,9 +66,11 @@ class Settings:
     QDRANT_COLLECTION_NAME: str = field(
         default_factory=lambda: os.getenv("QDRANT_COLLECTION_NAME", "documents")
     )
-    QDRANT_USE_IN_MEMORY: bool = field(
-        default_factory=lambda: os.getenv("QDRANT_USE_IN_MEMORY", "false").lower()
-        == "true"
+    QDRANT_MODE: str = field(
+        default_factory=lambda: os.getenv("QDRANT_MODE", "memory").lower()
+    )
+    QDRANT_LOCAL_PATH: str = field(
+        default_factory=lambda: os.getenv("QDRANT_LOCAL_PATH", "./qdrant_data")
     )
 
     # --- Document Processing Settings ---

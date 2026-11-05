@@ -1,6 +1,6 @@
 {
     "dataset": "golden_dataset",
-    "evaluation_timestamp": "2026-11-05T10:38:50.661624+00:00",
+    "evaluation_timestamp": "2026-11-05T12:52:41.761238+00:00",
     "evaluation_provider": "Groq",
     "evaluation_model": "llama-3.3-70b-versatile",
     "retrieval_k": 4,

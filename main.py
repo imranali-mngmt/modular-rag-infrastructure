@@ -3,6 +3,7 @@ Interactive RAG CLI - Ingest documents and query them.
 """
 
 import sys
+import traceback
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
@@ -23,9 +24,7 @@ def print_banner():
     print(
         f"  LLM: {settings.LLM_PROVIDER.upper()} | Embeddings: {settings.EMBEDDING_PROVIDER.upper()}"
     )
-    print(
-        f"  Vector Store: Qdrant ({'in-memory' if settings.QDRANT_USE_IN_MEMORY else settings.QDRANT_URL})"
-    )
+    print(f"  Vector Store: Qdrant ({settings.QDRANT_MODE} mode)")
     print("=" * 70)
 
 
@@ -36,6 +35,7 @@ def print_help():
     print("  /clear             - Clear all indexed documents")
     print("  /help              - Show this help message")
     print("  /exit              - Exit the application")
+    print("  💡 Tip: Just type your question directly!")
     print()
 
 
@@ -65,12 +65,7 @@ def handle_ingest(args: str, indexing_service):
 
     except Exception as e:
         print(f"❌ Error during ingestion: {e}")
-
-
-import traceback
-from pathlib import Path
-
-# ... (keep your other imports)
+        traceback.print_exc()
 
 
 def handle_query(args: str, retrieval_service, generator_service):
@@ -104,23 +99,15 @@ def handle_query(args: str, retrieval_service, generator_service):
         print(answer)
         print("-" * 70)
 
-        # 3. Print sources below the answer (Robust to dict or object)
+        # 3. Print sources
         print("\n📚 SOURCES:")
         for i, result in enumerate(response.results, 1):
-            if isinstance(result, dict):
-                meta = result.get("metadata", {})
-                source = meta.get("source", "unknown")
-                page = meta.get("page", "?")
-            else:
-                meta = getattr(result, "metadata", {})
-                source = (
-                    meta.get("source", "unknown")
-                    if isinstance(meta, dict)
-                    else "unknown"
-                )
-                page = meta.get("page", "?") if isinstance(meta, dict) else "?"
+            meta = getattr(result, "metadata", {})
+            source = (
+                meta.get("source", "unknown") if isinstance(meta, dict) else "unknown"
+            )
+            page = meta.get("page", "?") if isinstance(meta, dict) else "?"
 
-            # Safely handle Path extraction
             try:
                 source_name = Path(source).name
             except Exception:
@@ -131,7 +118,7 @@ def handle_query(args: str, retrieval_service, generator_service):
 
     except Exception as e:
         print(f"\n❌ Error during retrieval/generation:")
-        traceback.print_exc()  # This will print the exact line causing the error
+        traceback.print_exc()
 
 
 def handle_list(vector_store):
@@ -153,14 +140,11 @@ def handle_clear(vector_store):
     if confirm == "y":
         try:
             vector_store.clear()
-            print("Properly worked All documents cleared.")
+            print("✅ All documents cleared.")
         except Exception as e:
             print(f"❌ Error clearing: {e}")
     else:
         print("Cancelled.")
-
-
-# ... (keep imports and helper functions the same)
 
 
 def main():
@@ -173,6 +157,7 @@ def main():
         generator_service = get_generator_service()
     except (ConfigurationError, LLMProviderError) as e:
         print(f"\n❌ Initialization Error: {e}")
+        traceback.print_exc()
         sys.exit(1)
 
     print_help()
@@ -184,24 +169,25 @@ def main():
             if not user_input:
                 continue
 
-            # CHANGE THIS BLOCK:
+            # Direct question (no / prefix)
             if not user_input.startswith("/"):
-                # Treat direct input as a query
                 handle_query(user_input, retrieval_service, generator_service)
                 continue
 
-            # Parse command and arguments
+            # Parse command
             parts = user_input.split(" ", 1)
             command = parts[0].lower()
             args = parts[1] if len(parts) > 1 else ""
 
-            if command == "/exit" or command == "/quit":
+            if command in ["/exit", "/quit"]:
                 print("\n👋 Goodbye!")
                 break
             elif command == "/help":
                 print_help()
             elif command == "/ingest":
                 handle_ingest(args, indexing_service)
+            elif command == "/query":
+                handle_query(args, retrieval_service, generator_service)
             elif command == "/list":
                 handle_list(vector_store)
             elif command == "/clear":
@@ -216,10 +202,8 @@ def main():
             break
         except Exception as e:
             print(f"❌ Error: {e}")
+            traceback.print_exc()
 
-
-if __name__ == "__main__":
-    main()
 
 if __name__ == "__main__":
     main()

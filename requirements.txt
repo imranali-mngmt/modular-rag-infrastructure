@@ -1,21 +1,28 @@
+
 python-dotenv
+
+# LangChain ecosystem
+langchain
+langchain-core
+langchain-community
+langchain-text-splitters
+langchain-openai
 langchain-google-genai
 langchain-qdrant
-qdrant-client
-langchain
 langchain-cohere
-cohere
-langchain-community
-langchain-text-splitters
-pypdf
-python-dotenv
-numpy
-qdrant-client
-fastembed
-deepeval
-
-langchain-openai
 langchain-groq
-langchain-community
 
-langchain-text-splitters
+# Vector database
+qdrant-client
+
+# LLM providers
+cohere
+
+# Document processing
+pypdf
+
+# Data processing
+numpy
+
+# Evaluation
+deepeval==2.6.7

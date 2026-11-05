@@ -1,415 +1,533 @@
 """
-Retriever-only evaluation using DeepEval and Groq.
-
-Evaluates:
-1. Contextual Precision
-2. Contextual Recall
-3. Contextual Relevancy
-
-The existing application retriever is used for retrieval.
-Groq is used only as the evaluation LLM (judge).
+script:
+sifr is script sy run hota hai
+    python -m evals.scripts.evaluate_retriever
+    )
 """
 
-import os
-import sys
+import argparse
 import json
+from dataclasses import dataclass, field
 
+from datetime import datetime
 from pathlib import Path
-from datetime import datetime, timezone
+from typing import Any, Callable, List, Optional, Protocol, Sequence, Tuple
 
-from dotenv import load_dotenv
-
-from deepeval.models import OpenAIModel
-
+from deepeval import evaluate
 from deepeval.metrics import (
+    BaseMetric,
     ContextualPrecisionMetric,
     ContextualRecallMetric,
-    ContextualRelevancyMetric,
 )
-
 from deepeval.test_case import LLMTestCase
 
-# --------------------------------------------------
-# 1. Project configuration
-# --------------------------------------------------
+
+import os
+from openai import OpenAI
+from deepeval.models import DeepEvalBaseLLM
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-sys.path.insert(0, str(PROJECT_ROOT))
-sys.path.insert(0, str(PROJECT_ROOT / "src"))
+EVALS_DIR = PROJECT_ROOT / "evals"
+DATASET_DIR = EVALS_DIR / "datasets"
+RESULTS_DIR = EVALS_DIR / "results"
 
-load_dotenv(PROJECT_ROOT / ".env")
+DEFAULT_DATASET_PATH = DATASET_DIR / "golden_dataset.json"
 
-from src.app.api.dependencies.providers import get_retriever
-
-from evals.scripts.dataset_loader import load_golden_dataset
-
-# --------------------------------------------------
-# 2. Groq configuration
-# --------------------------------------------------
+# ============================================================
+# CONFIGURATION
+# ============================================================
 
 
-def get_evaluation_model():
-    """
-    Configure Groq as the DeepEval evaluation judge.
-    """
+class Mercury3Judge(DeepEvalBaseLLM):
 
-    api_key = os.getenv("GROQ_API_KEY")
+    def __init__(self):
+        api_key = os.getenv("INCEPTION_API_KEY")
 
-    if not api_key:
-        raise EnvironmentError(
-            "GROQ_API_KEY is missing. " "Please configure it in your project .env file."
+        if not api_key:
+            raise ValueError("INCEPTION_API_KEY not found in environment.")
+
+        self.client = OpenAI(
+            api_key=api_key, base_url="https://api.inceptionlabs.ai/v1/"
         )
 
-    model_name = os.getenv(
-        "GROQ_MODEL",
-        "llama-3.3-70b-versatile",
-    )
+    def load_model(self):
+        return self.client
 
-    base_url = os.getenv(
-        "GROQ_BASE_URL",
-        "https://api.groq.com/openai/v1",
-    )
+    def get_model_name(self):
+        return "mercury-3"
 
-    print("\nGroq API Configuration")
-    print(f"Model: {model_name}")
-    print(f"Base URL: {base_url}")
-    print("API Key: Loaded successfully")
-
-    return OpenAIModel(
-        model=model_name,
-        api_key=api_key,
-        base_url=base_url,
-        temperature=0,
-    )
-
-
-# --------------------------------------------------
-# 3. Retriever
-# --------------------------------------------------
-
-
-def retrieve_context(retriever, query: str, k: int = 4) -> list[str]:
-    """
-    Retrieve actual documents using the existing application retriever.
-    """
-
-    results = retriever.retrieve(query, k=k)
-
-    contexts = [
-        result.content for result in results if getattr(result, "content", None)
-    ]
-
-    dropped = len(results) - len(contexts)
-
-    if dropped:
-        print(
-            f"WARNING: Dropped {dropped} retrieved item(s) "
-            "missing a 'content' attribute."
+    def generate(self, prompt: str) -> str:
+        response = self.client.chat.completions.create(
+            model="mercury-3",
+            messages=[{"role": "user", "content": prompt}],
         )
 
-    return contexts
+        return response.choices[0].message.content or ""
+
+    async def a_generate(self, prompt: str) -> str:
+        response = await self.client.chat.completions.create(
+            model="mercury-3",
+            messages=[{"role": "user", "content": prompt}],
+        )
+
+        return response.choices[0].message.content or ""
 
 
-# --------------------------------------------------
-# 4. DeepEval metrics
-# --------------------------------------------------
+@dataclass
+class RetrieverEvalConfig:
+    """All knobs for a retriever evaluation run."""
+
+    judge_model: DeepEvalBaseLLM = field(default_factory=Mercury3Judge)
+    dataset_path: Path = DEFAULT_DATASET_PATH
+    results_dir: Path = RESULTS_DIR
+    top_k: int = 4
+    metric_threshold: float = 0.7
+    verbose: bool = True
 
 
-def create_metrics(judge_model):
+class Retriever(Protocol):
+    """Minimal interface the evaluation expects from a retrieval service."""
 
+    def retrieve(self, query: str, k: int) -> Any: ...
+
+
+ChunkExtractor = Callable[[Any], List[str]]
+
+
+def default_chunk_extractor(response: Any) -> List[str]:
+    """Extract non-empty chunk texts from a retrieval service response."""
     return [
-        ContextualPrecisionMetric(
-            threshold=0.5,
-            model=judge_model,
-            include_reason=True,
-        ),
+        result.content
+        for result in response.results
+        if getattr(result, "content", None)
+    ]
+
+
+def _log(config: RetrieverEvalConfig, message: str) -> None:
+    if config.verbose:
+        print(message)
+
+
+# ============================================================
+# DATASET LOADING
+# ============================================================
+
+
+def load_golden_dataset(dataset_path: Path) -> Tuple[str, List[dict]]:
+    """Load and validate the golden dataset. Returns (name, samples)."""
+
+    if not dataset_path.exists():
+        raise FileNotFoundError(f"Golden dataset not found: {dataset_path}")
+
+    with open(dataset_path, "r", encoding="utf-8") as file:
+        dataset = json.load(file)
+
+    golden_samples = dataset.get("golden_samples", [])
+
+    if not golden_samples:
+        raise ValueError(f"Golden dataset contains no samples: {dataset_path}")
+
+    dataset_name = dataset.get("name", dataset_path.stem)
+
+    return dataset_name, golden_samples
+
+
+# ============================================================
+# METRICS
+# ============================================================
+
+
+def build_default_metrics(config: RetrieverEvalConfig) -> List[BaseMetric]:
+    """Default metric suite: contextual recall + contextual precision."""
+    return [
         ContextualRecallMetric(
-            threshold=0.5,
-            model=judge_model,
-            include_reason=True,
+            threshold=config.metric_threshold, model=config.judge_model
         ),
-        ContextualRelevancyMetric(
-            threshold=0.5,
-            model=judge_model,
-            include_reason=True,
+        ContextualPrecisionMetric(
+            threshold=config.metric_threshold, model=config.judge_model
         ),
     ]
 
 
-# --------------------------------------------------
-# 5. Save evaluation results
-# --------------------------------------------------
+# ============================================================
+# TEST CASE BUILDING
+# ============================================================
 
 
-def save_results(results: dict, dataset_path: str):
-
-    results_dir = PROJECT_ROOT / "evals" / "results"
-
-    results_dir.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    dataset_name = Path(dataset_path).stem
-
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-
-    results_file = results_dir / (f"{dataset_name}_{timestamp}_results.json")
-
-    with results_file.open(
-        "w",
-        encoding="utf-8",
-    ) as file:
-
-        json.dump(
-            results,
-            file,
-            indent=4,
-            ensure_ascii=False,
-        )
-
-    print(f"\nResults saved to: {results_file}")
-
-    return results_file
-
-
-# --------------------------------------------------
-# 6. Main evaluation
-# --------------------------------------------------
-
-
-def evaluate_retriever(
-    dataset_path: str,
-    k: int = 4,
-):
+def build_test_cases(
+    golden_samples: Sequence[dict],
+    retriever: Retriever,
+    config: RetrieverEvalConfig,
+    chunk_extractor: ChunkExtractor = default_chunk_extractor,
+) -> Tuple[List[LLMTestCase], List[dict], List[dict]]:
     """
-    Run retriever evaluation against a golden dataset.
+    Retrieve documents for every golden sample.
+
+    Returns:
+        test_cases: DeepEval test cases ready for evaluation.
+        detailed_results: Per-question retrieval details (metrics filled in later).
+        failures: Questions that could not be retrieved.
     """
 
-    if k < 1:
-        raise ValueError("k must be greater than zero.")
+    test_cases: List[LLMTestCase] = []
+    detailed_results: List[dict] = []
+    failures: List[dict] = []
 
-    print("\n" + "=" * 65)
-    print("       RETRIEVER EVALUATION - DEEPEVAL (Groq judge)")
-    print("=" * 65)
+    total = len(golden_samples)
 
-    # Load dataset
-    print("\n[1/5] Loading golden dataset...")
+    for idx, sample in enumerate(golden_samples, start=1):
 
-    golden_samples = load_golden_dataset(dataset_path)
+        question = sample.get("input")
+        golden_context = sample.get("retrieval_context", [])
 
-    # Initialize evaluation model
-    print("\n[2/5] Initializing Groq evaluation model...")
+        if not question:
+            failures.append(
+                {"question": None, "reason": "Missing input question in dataset."}
+            )
+            continue
 
-    judge_model = get_evaluation_model()
-
-    # Initialize retriever only once
-    print("\n[3/5] Initializing application retriever...")
-
-    retriever = get_retriever()
-
-    print("Retriever initialized successfully.")
-
-    # Create metrics once and reuse them for every sample
-    metrics = create_metrics(judge_model)
-
-    # Run retrieval and evaluation
-    print("\n[4/5] Running retrieval and evaluation...")
-
-    evaluation_results = []
-
-    metric_totals = {}
-
-    skipped_samples = 0
-
-    for index, golden in enumerate(golden_samples, start=1):
-
-        query = golden["input"]
-
-        print("\n" + "-" * 65)
-        print(f"Query [{index}/{len(golden_samples)}]")
-        print(query)
-
-        # Retrieve actual context
-        actual_context = retrieve_context(
-            retriever=retriever,
-            query=query,
-            k=k,
-        )
-
-        # Gracefully skip samples where the retriever returned nothing
-        if not actual_context:
-
-            print("WARNING: Retriever returned no documents. Skipping metrics.")
-
-            skipped_samples += 1
-
-            evaluation_results.append(
+        if not golden_context:
+            failures.append(
                 {
-                    "input": query,
-                    "expected_output": golden["expected_output"],
-                    "expected_context": golden["retrieval_context"],
-                    "retrieved_context": actual_context,
-                    "retrieved_count": 0,
-                    "metrics": {"error": "No documents retrieved - metrics skipped."},
+                    "question": question,
+                    "reason": "Missing retrieval_context in dataset.",
+                }
+            )
+            continue
+
+        _log(config, f"[{idx}/{total}] Retrieving: {question[:70]}...")
+
+        try:
+
+            response = retriever.retrieve(question, k=config.top_k)
+            retrieved_chunks = chunk_extractor(response)
+
+            if not retrieved_chunks:
+                failures.append(
+                    {
+                        "question": question,
+                        "reason": "Retriever returned no usable document chunks.",
+                    }
+                )
+                _log(config, "   WARNING: No documents retrieved.")
+                continue
+
+            test_cases.append(
+                LLMTestCase(
+                    input=question,
+                    actual_output=" ".join(retrieved_chunks),
+                    expected_output=" ".join(golden_context),
+                    retrieval_context=retrieved_chunks,
+                )
+            )
+
+            detailed_results.append(
+                {
+                    "question": question,
+                    "golden_context": golden_context,
+                    "actual_retrieved_context": retrieved_chunks,
+                    "retrieved_chunks_count": len(retrieved_chunks),
+                    "status": "PENDING",
                 }
             )
 
-            continue
+            _log(config, f"   Retrieved {len(retrieved_chunks)} chunks.")
 
-        # Construct DeepEval test case
-        test_case = LLMTestCase(
-            input=query,
-            # Placeholder: this is a retriever-only evaluation.
-            # We are not evaluating answer generation here.
-            actual_output="Retriever-only evaluation.",
-            expected_output=golden["expected_output"],
-            # Actual documents returned by your retriever
-            retrieval_context=actual_context,
-            # Ground-truth context from the golden dataset.
-            # Note: the three RAG metrics above do NOT read 'context'
-            # (they score retrieval_context against expected_output).
-            # Kept here for future generation-side metrics (e.g. faithfulness).
-            context=golden["retrieval_context"],
-        )
+        except Exception as error:
+            _log(config, f"   Retrieval failed: {error}")
+            failures.append(
+                {"question": question, "reason": f"Retrieval Error: {error}"}
+            )
 
-        sample_result = {
-            "input": query,
-            "expected_output": golden["expected_output"],
-            "expected_context": golden["retrieval_context"],
-            "retrieved_context": actual_context,
-            "retrieved_count": len(actual_context),
-            "metrics": {},
-        }
+    return test_cases, detailed_results, failures
 
-        # Measure each metric
-        for metric in metrics:
 
-            metric_name = metric.__class__.__name__
+# ============================================================
+# RESULT PROCESSING
+# ============================================================
 
-            print(f"\nEvaluating {metric_name}...")
 
-            # One flaky judge response must not kill the whole run
-            try:
+def process_results(
+    results: Any,
+    detailed_results: List[dict],
+    failures: List[dict],
+) -> List[dict]:
+    """Merge DeepEval metric scores back into the per-question details."""
 
-                metric.measure(test_case)
+    evaluated_results: List[dict] = []
 
-            except Exception as exc:
+    for i, test_result in enumerate(results.test_results):
 
-                print(f"ERROR: {metric_name} failed: {exc}")
+        detail = detailed_results[i]
+        metrics_data: dict = {}
+        case_failures: List[dict] = []
 
-                sample_result["metrics"][metric_name] = {
-                    "score": None,
-                    "reason": f"Evaluation failed: {exc}",
-                    "threshold": metric.threshold,
-                    "passed": False,
-                    "error": str(exc),
-                }
+        for metric_result in test_result.metrics_data:
 
-                continue
+            score = metric_result.score
 
-            score = metric.score
-            reason = metric.reason
-
-            sample_result["metrics"][metric_name] = {
-                "score": score,
-                "reason": reason,
-                "threshold": metric.threshold,
-                "passed": (score is not None and score >= metric.threshold),
+            metrics_data[metric_result.name] = {
+                "score": round(score, 4) if score is not None else None,
+                "passed": metric_result.success,
+                "reason": metric_result.reason,
             }
 
-            if score is not None:
-                metric_totals.setdefault(metric_name, []).append(score)
+            if not metric_result.success:
+                case_failures.append(
+                    {
+                        "metric": metric_result.name,
+                        "score": score,
+                        "reason": metric_result.reason,
+                    }
+                )
 
-            print(f"Score: {score}")
-            print(f"Reason: {reason}")
+        detail["metrics"] = metrics_data
+        detail["overall_status"] = "PASS" if test_result.success else "FAIL"
 
-        evaluation_results.append(sample_result)
+        evaluated_results.append(detail)
 
-    # Calculate averages
-    print("\n[5/5] Generating evaluation report...")
+        if case_failures:
+            failures.append({"question": detail["question"], "reasons": case_failures})
 
-    summary = {}
+    return evaluated_results
 
-    for metric_name, scores in metric_totals.items():
 
-        average_score = sum(scores) / len(scores) if scores else 0
-
-        summary[metric_name] = {
-            "average_score": round(average_score, 4),
-            "evaluated_samples": len(scores),
-        }
-
-    final_results = {
-        "dataset": Path(dataset_path).stem,
-        "evaluation_timestamp": datetime.now(timezone.utc).isoformat(),
-        "evaluation_provider": "Groq",
-        "evaluation_model": os.getenv(
-            "GROQ_MODEL",
-            "llama-3.3-70b-versatile",
-        ),
-        "retrieval_k": k,
-        "total_samples": len(golden_samples),
-        "evaluated_samples": len(golden_samples) - skipped_samples,
-        "skipped_samples": skipped_samples,
-        "summary": summary,
-        "samples": evaluation_results,
-    }
-
-    save_results(
-        results=final_results,
-        dataset_path=dataset_path,
+def count_retrieval_failures(failures: Sequence[dict]) -> int:
+    """Count failures caused by the retrieval step (not metric failures)."""
+    return len(
+        [
+            failure
+            for failure in failures
+            if "Retrieval Error" in failure.get("reason", "")
+            or "No usable document" in failure.get("reason", "")
+        ]
     )
 
-    # Print summary
-    print("\n" + "=" * 65)
-    print("             EVALUATION SUMMARY")
-    print("=" * 65)
 
-    if skipped_samples:
-        print(f"\nSkipped samples (no documents retrieved): {skipped_samples}")
+def build_summary(
+    dataset_name: str,
+    config: RetrieverEvalConfig,
+    total_golden_samples: int,
+    total_cases: int,
+    evaluated_results: List[dict],
+    failures: List[dict],
+    pass_rate: float,
+) -> dict:
 
-    for metric_name, values in summary.items():
+    return {
+        "evaluation_type": "RETRIEVER",
+        "dataset_name": dataset_name,
+        "dataset_path": str(config.dataset_path),
+        "timestamp": datetime.now().isoformat(),
+        "configuration": {
+            "top_k": config.top_k,
+            "metric_threshold": config.metric_threshold,
+            "judge_model": "mercury-3",
+        },
+        "total_golden_samples": total_golden_samples,
+        "total_cases": total_cases,
+        "failed_retrievals": count_retrieval_failures(failures),
+        "pass_rate": f"{pass_rate * 100:.1f}%",
+        "detailed_results": evaluated_results,
+        "failures": failures,
+    }
 
-        print(f"\n{metric_name}")
-        print(f"Average Score: {values['average_score']:.4f}")
-        print(f"Evaluated Samples: {values['evaluated_samples']}")
 
-    print("\n" + "=" * 65)
-    print("Evaluation completed successfully.")
-    print("=" * 65)
-
-    return final_results
+# ============================================================
+# OUTPUT
+# ============================================================
 
 
-# --------------------------------------------------
-# 7. CLI entry point
-# --------------------------------------------------
+def save_results(summary: dict, results_dir: Path) -> Path:
+
+    results_dir.mkdir(parents=True, exist_ok=True)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_file = results_dir / f"retriever_eval_{timestamp}.json"
+
+    with open(output_file, "w", encoding="utf-8") as file:
+        json.dump(summary, file, indent=4, ensure_ascii=False)
+
+    return output_file
+
+
+def print_report(summary: dict, output_file: Path) -> None:
+
+    print("\n" + "=" * 60)
+    print("RETRIEVER EVALUATION COMPLETE")
+    print("=" * 60)
+    print(f"Dataset:            {summary['dataset_name']}")
+    print(f"Evaluated cases:    {summary['total_cases']}")
+    print(f"Retrieval failures: {summary['failed_retrievals']}")
+    print(f"Pass rate:          {summary['pass_rate']}")
+    print(f"\nResults saved to:\n{output_file}")
+    print("=" * 60 + "\n")
+
+
+# ============================================================
+# ORCHESTRATION
+# ============================================================
+
+
+def run_retriever_evaluation(
+    retriever: Optional[Retriever] = None,
+    config: Optional[RetrieverEvalConfig] = None,
+    metrics: Optional[Sequence[BaseMetric]] = None,
+    chunk_extractor: ChunkExtractor = default_chunk_extractor,
+) -> dict:
+    """
+    Run a full retriever evaluation.
+
+    Args:
+        retriever: Retrieval service to evaluate. Defaults to the app's
+            retrieval service (imported lazily so this module can be reused
+            without the app package).
+        config: Evaluation settings (paths, top_k, thresholds).
+        metrics: DeepEval metrics to run. Defaults to contextual recall and
+            contextual precision built from the config.
+        chunk_extractor: Extracts chunk texts from a retriever response,
+            allowing reuse with different retrieval service implementations.
+
+    Returns:
+        The evaluation summary dict (also written to disk as JSON).
+    """
+
+    config = config or RetrieverEvalConfig()
+
+    _log(config, "\nStarting standalone retriever evaluation...\n")
+
+    # 1. Load golden dataset.
+    _log(config, "Loading golden dataset...")
+    dataset_name, golden_samples = load_golden_dataset(config.dataset_path)
+    _log(config, f"   Dataset: {dataset_name}")
+    _log(config, f"   Total samples: {len(golden_samples)}")
+    _log(config, f"   Dataset path: {config.dataset_path}\n")
+
+    # 2. Resolve retriever.
+    if retriever is None:
+        _log(config, "Initializing default retrieval service...")
+        from app.api.dependencies.providers import get_retrieval_service
+
+        retriever = get_retrieval_service()
+        _log(config, "   Retrieval service initialized successfully.\n")
+
+    # 3. Resolve metrics.
+    if metrics is None:
+        metrics = build_default_metrics(config)
+
+    # 4. Retrieve documents and build test cases.
+    _log(config, "Starting document retrieval...\n")
+
+    test_cases, detailed_results, failures = build_test_cases(
+        golden_samples=golden_samples,
+        retriever=retriever,
+        config=config,
+        chunk_extractor=chunk_extractor,
+    )
+
+    if not test_cases:
+        raise RuntimeError(
+            "Evaluation stopped because no test cases were created. "
+            "Check your retriever and golden dataset."
+        )
+
+    _log(config, "\n" + "=" * 60)
+    _log(config, "RETRIEVAL SUMMARY")
+    _log(config, "=" * 60)
+    _log(config, f"Total golden samples: {len(golden_samples)}")
+    _log(config, f"Successful retrievals: {len(test_cases)}")
+    _log(config, f"Failed retrievals: {len(failures)}")
+
+    # 5. Run DeepEval metrics.
+    _log(config, "\nRunning DeepEval retriever metrics...\n")
+
+    results = evaluate(test_cases=test_cases, metrics=list(metrics))
+
+    # 6. Merge metric scores into per-question details.
+    _log(config, "\nProcessing evaluation results...")
+
+    evaluated_results = process_results(results, detailed_results, failures)
+
+    # 7. Build summary.
+    summary = build_summary(
+        dataset_name=dataset_name,
+        config=config,
+        total_golden_samples=len(golden_samples),
+        total_cases=len(test_cases),
+        evaluated_results=evaluated_results,
+        failures=failures,
+        pass_rate=results.pass_rate,
+    )
+
+    # 8. Save report.
+    output_file = save_results(summary, config.results_dir)
+
+    # 9. Final report.
+    if config.verbose:
+        print_report(summary, output_file)
+
+    return summary
+
+
+# ============================================================
+# CLI ENTRY POINT
+# ============================================================
+
+
+def parse_args() -> argparse.Namespace:
+
+    base = RetrieverEvalConfig()
+
+    parser = argparse.ArgumentParser(description="Run standalone retriever evaluation.")
+
+    parser.add_argument(
+        "--dataset",
+        type=Path,
+        default=base.dataset_path,
+        help="Path to the golden dataset JSON file.",
+    )
+    parser.add_argument(
+        "--results-dir",
+        type=Path,
+        default=base.results_dir,
+        help="Directory where reports are written.",
+    )
+    parser.add_argument(
+        "--top-k",
+        type=int,
+        default=base.top_k,
+        help="Number of chunks to retrieve per question.",
+    )
+    parser.add_argument(
+        "--threshold",
+        type=float,
+        default=base.metric_threshold,
+        help="Minimum score for a metric to pass.",
+    )
+    parser.add_argument(
+        "--judge-model",
+        type=str,
+        default=base.judge_model,
+        help="Model used by DeepEval to grade the metrics.",
+    )
+    parser.add_argument(
+        "--quiet", action="store_true", help="Suppress progress output."
+    )
+
+    return parser.parse_args()
+
 
 if __name__ == "__main__":
 
-    import argparse
+    args = parse_args()
 
-    parser = argparse.ArgumentParser(
-        description="Evaluate retriever using DeepEval and Groq."
-    )
-
-    parser.add_argument(
-        "dataset",
-        help="Path to golden dataset JSON.",
-    )
-
-    parser.add_argument(
-        "--k",
-        type=int,
-        default=4,
-        help="Number of documents to retrieve.",
-    )
-
-    args = parser.parse_args()
-
-    evaluate_retriever(
-        dataset_path=args.dataset,
-        k=args.k,
+    run_retriever_evaluation(
+        config=RetrieverEvalConfig(
+            dataset_path=args.dataset,
+            results_dir=args.results_dir,
+            top_k=args.top_k,
+            metric_threshold=args.threshold,
+            verbose=not args.quiet,
+        )
     )

@@ -9,7 +9,7 @@ from app.domain.interfaces.sparse_embeddings_interface import BaseSparseEmbeddin
 
 
 class QdrantHybridVectorStore(BaseVectorStore):
-    """Qdrant vector store with native Hybrid Search (Dense + Sparse) support."""
+    """Qdrant vector store with Hybrid Search support (Dense + Sparse)."""
 
     def __init__(
         self,
@@ -22,23 +22,44 @@ class QdrantHybridVectorStore(BaseVectorStore):
         self.dense_embeddings = dense_embeddings
         self.sparse_embeddings = sparse_embeddings
 
-        if settings.QDRANT_USE_IN_MEMORY:
+        # Initialize Qdrant client based on mode
+        mode = settings.QDRANT_MODE.lower()
+
+        if mode == "memory":
             self.client = QdrantClient(":memory:")
-            print("📦 [Qdrant] Using in-memory storage")
-        else:
+            print(f"📦 [Qdrant] Using IN-MEMORY storage (volatile)")
+        elif mode == "local":
+            self.client = QdrantClient(path=settings.QDRANT_LOCAL_PATH)
+            print(
+                f"📦 [Qdrant] Using LOCAL PERSISTENT storage at '{settings.QDRANT_LOCAL_PATH}'"
+            )
+        elif mode == "cloud":
+            if not settings.QDRANT_URL:
+                raise ValueError("QDRANT_URL is required for cloud mode")
             self.client = QdrantClient(
                 url=settings.QDRANT_URL,
                 api_key=settings.QDRANT_API_KEY if settings.QDRANT_API_KEY else None,
             )
-            print(f"📦 [Qdrant] Connected to {settings.QDRANT_URL}")
+            print(f"📦 [Qdrant] Connected to CLOUD instance at {settings.QDRANT_URL}")
+        else:
+            raise ValueError(
+                f"Unknown QDRANT_MODE: {mode}. Use 'memory', 'local', or 'cloud'"
+            )
 
         self._ensure_collection()
 
     def _ensure_collection(self) -> None:
-        collections = [c.name for c in self.client.get_collections().collections]
+        """Create collection if it doesn't exist."""
+        try:
+            collections = [c.name for c in self.client.get_collections().collections]
+        except Exception as e:
+            print(f"⚠️  Warning: Could not list collections: {e}")
+            collections = []
 
         if self.collection_name not in collections:
+            # Get sample embedding to determine dimension
             sample_dense = self.dense_embeddings.embed_query("test")
+
             self.client.create_collection(
                 collection_name=self.collection_name,
                 vectors_config={
@@ -48,13 +69,9 @@ class QdrantHybridVectorStore(BaseVectorStore):
                 },
                 sparse_vectors_config={"sparse": models.SparseVectorParams()},
             )
-            print(
-                f"Properly worked [Qdrant] Created hybrid collection '{self.collection_name}'"
-            )
+            print(f"✅ [Qdrant] Created hybrid collection '{self.collection_name}'")
         else:
-            print(
-                f"Properly worked [Qdrant] Hybrid collection '{self.collection_name}' already exists"
-            )
+            print(f"✅ [Qdrant] Collection '{self.collection_name}' already exists")
 
     def add_documents(
         self,
@@ -62,16 +79,21 @@ class QdrantHybridVectorStore(BaseVectorStore):
         dense_embeddings: List[List[float]],
         metadatas: List[dict],
     ) -> int:
+        """Add documents to the vector store."""
         if not texts:
             return 0
 
-        # Generate sparse embeddings locally (free and fast)
+        # Generate sparse embeddings
         sparse_embeddings = self.sparse_embeddings.embed_documents(texts)
 
         points = []
-        for text, dense_vec, sparse_vec, metadata in zip(
-            texts, dense_embeddings, sparse_embeddings, metadatas
+        for idx, (text, dense_vec, sparse_vec, metadata) in enumerate(
+            zip(texts, dense_embeddings, sparse_embeddings, metadatas)
         ):
+            # Skip if sparse vector is empty
+            if not sparse_vec["indices"]:
+                continue
+
             points.append(
                 models.PointStruct(
                     id=str(uuid.uuid4()),
@@ -85,12 +107,33 @@ class QdrantHybridVectorStore(BaseVectorStore):
                 )
             )
 
-        # Batch upload
-        batch_size = 100
-        for i in range(0, len(points), batch_size):
-            self.client.upsert(
-                collection_name=self.collection_name, points=points[i : i + batch_size]
-            )
+        # Batch upload with smaller batch size and explicit timeout for Cloud stability
+        if points:
+            batch_size = 32  # ✅ Reduced from 100 to prevent network timeouts
+            total_points = len(points)
+
+            for i in range(0, total_points, batch_size):
+                batch = points[i : i + batch_size]
+                try:
+                    self.client.upsert(
+                        collection_name=self.collection_name,
+                        points=batch,
+                        timeout=60,  # ✅ Explicit 60-second timeout for cloud uploads
+                    )
+                    print(
+                        f"   💾 Uploaded batch {i//batch_size + 1} ({len(batch)} points)"
+                    )
+                except Exception as e:
+                    print(
+                        f"   ⚠️ Warning: Failed to upload batch {i//batch_size + 1}. Retrying with smaller batch..."
+                    )
+                    # Fallback: try uploading one by one if the batch fails
+                    for point in batch:
+                        self.client.upsert(
+                            collection_name=self.collection_name,
+                            points=[point],
+                            timeout=60,
+                        )
 
         return len(points)
 
@@ -101,46 +144,61 @@ class QdrantHybridVectorStore(BaseVectorStore):
         fetch_k: int = 20,
         return_k: int = 4,
     ) -> List[RetrievalResult]:
-        """Perform Hybrid Search using Qdrant's native Reciprocal Rank Fusion (RRF)."""
+        """Perform Hybrid Search using Qdrant's Reciprocal Rank Fusion (RRF)."""
         sparse_query = self.sparse_embeddings.embed_query(query_text)
 
-        results = self.client.query_points(
-            collection_name=self.collection_name,
-            prefetch=[
-                models.Prefetch(
-                    query=dense_query_embedding, using="dense", limit=fetch_k
-                ),
-                models.Prefetch(
-                    query=models.SparseVector(
-                        indices=sparse_query["indices"], values=sparse_query["values"]
+        # If sparse query is empty, fall back to dense-only search
+        if not sparse_query["indices"]:
+            results = self.client.query_points(
+                collection_name=self.collection_name,
+                query=dense_query_embedding,
+                using="dense",
+                limit=return_k,
+                with_payload=True,
+            )
+        else:
+            # Hybrid search with both dense and sparse
+            results = self.client.query_points(
+                collection_name=self.collection_name,
+                prefetch=[
+                    models.Prefetch(
+                        query=dense_query_embedding, using="dense", limit=fetch_k
                     ),
-                    using="sparse",
-                    limit=fetch_k,
-                ),
-            ],
-            query=models.FusionQuery(fusion=models.Fusion.RRF),
-            limit=return_k,
-            with_payload=True,
-        )
+                    models.Prefetch(
+                        query=models.SparseVector(
+                            indices=sparse_query["indices"],
+                            values=sparse_query["values"],
+                        ),
+                        using="sparse",
+                        limit=fetch_k,
+                    ),
+                ],
+                query=models.FusionQuery(fusion=models.Fusion.RRF),
+                limit=return_k,
+                with_payload=True,
+            )
 
         retrieval_results = []
         for point in results.points:
             payload = point.payload or {}
             content = payload.pop("content", "")
             retrieval_results.append(
-                RetrievalResult(
-                    content=content, score=point.score, metadata=payload  # RRF score
-                )
+                RetrievalResult(content=content, score=point.score, metadata=payload)
             )
 
         return retrieval_results
 
     def count(self) -> int:
+        """Get total number of points in the collection."""
         try:
             return self.client.get_collection(self.collection_name).points_count
         except Exception:
             return 0
 
     def clear(self) -> None:
-        self.client.delete_collection(self.collection_name)
-        self._ensure_collection()
+        """Clear all documents from the collection."""
+        try:
+            self.client.delete_collection(self.collection_name)
+            self._ensure_collection()
+        except Exception as e:
+            print(f"⚠️  Warning: Could not clear collection: {e}")
