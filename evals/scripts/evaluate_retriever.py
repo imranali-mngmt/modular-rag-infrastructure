@@ -3,6 +3,11 @@ script:
 sifr is script sy run hota hai
     python -m evals.scripts.evaluate_retriever
     )
+
+
+    python -m evals.scripts.evaluate_hallucination --top-k 6 --threshold 0.4
+python -m evals.scripts.evaluate_prompt_injection            # built-in attacks chalti hain agar dataset file nahi hai
+python -m evals.scripts.evaluate_latency --runs 5 --max-p95 20.0
 """
 
 import argparse
